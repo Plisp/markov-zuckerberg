@@ -211,14 +211,14 @@ std::string Markov::generate() {
 // remember to update count
 std::array<char, 12> clean_chars {'`', '*', '\'', '"', '|', '_', '\\', '\n', '\t', ':'};
 
-inline std::string& clean(std::string& msg) {
+std::string& clean(std::string& msg) {
   for(const char& c : clean_chars)
     msg.erase(std::remove(msg.begin(), msg.end(), c), msg.end());
   return msg;
 };
 
 // returns random *index*
-inline int get_random(int max) {
+int get_random(int max) {
   static std::mt19937 rng;
   static bool seed_done;
   if (!seed_done) {

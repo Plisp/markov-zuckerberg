@@ -11,7 +11,8 @@
 #include <vector>
 
 inline std::string& clean(std::string& msg);
-int get_random(int max);
+inline int get_random(int max);
+std::string filter(std::string phrase, const std::string& errortype, const std::forward_list<std::string> stack);
 
 class Markov {
   using Key = std::string;
