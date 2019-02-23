@@ -3,8 +3,10 @@
 #define DPRINT(a) std::cout<<"line "<<__LINE__<<": "<<a<<std::endl;
 
 int main() {
-  // Client(token, num_threads)
-  Client client {"TOKEN", 2};
+  std::ifstream str {"token"};
+  std::string tok;
+  str >> tok;
+  Client client {tok, 2}; // Client(token, num_threads)
   client.dictionary.recover();
   std::thread repl {&Client::repl, &client};
   client.run();
@@ -15,21 +17,21 @@ int main() {
 /*** Client members ***/
 void Client::repl() {
   std::string command;
-  std::cout << "> ";
-  // handle repl command TODO: abstract
+  std::cout << "zuccv3> ";
   while (std::cin >> command) {
     if (command == "quit") {
       this->dictionary.save();
       this->quit();
       return;
     } else if (command == "restore") {
+      // discard modifications since session start
       this->dictionary.clear().recover();
     } else if (command == "save") {
       this->dictionary.save();
     } else {
       std::cout << "invalid command" << std::endl;
     }
-    std::cout << "> ";
+    std::cout << "zuccv3> ";
   }
   return;
 }
@@ -48,7 +50,6 @@ std::string Client::handle_cmd(std::string msg) {
   std::istringstream sstr {msg};
   std::string cmd, cur, res;
   sstr >> cmd;
-  // handle user command TODO: abstract
   if (cmd == "say") {
     res = dictionary.generate();
     return res;
@@ -197,7 +198,7 @@ std::string Markov::generate() {
     std::string res;
     filter_stack.push_front(cur_word);
 
-	if((res = filter("salad a is cereal", "misleading consumers", filter_stack)) != "pass")
+    if((res = filter("salad a is cereal", "misleading consumers", filter_stack)) != "pass")
       return res;
 
     if((res = filter("socialism to superior", "illegal phrase", filter_stack)) != "pass")
