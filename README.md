@@ -11,3 +11,4 @@ c++ -std=c++11 -I . -I ../../include -I ../../deps -I ../../deps/include -I ../.
 
 ## Usage
 Create a file named `token` containing your bot token and run `./zucc`. Boom.
+Optionally make a file called `channels` with alternating channels and ID's delimited by spaces.

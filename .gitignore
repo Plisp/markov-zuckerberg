@@ -1,6 +1,7 @@
 # don't add dictionary
 dict
 token
+channels
 
 # Prerequisites
 *.d

@@ -10,9 +10,10 @@
 #include <unordered_map>
 #include <vector>
 
-inline std::string& clean(std::string& msg);
+inline std::string clean(std::string msg);
 inline int get_random(int max);
 std::string filter(std::string phrase, const std::string& errortype, const std::forward_list<std::string> stack);
+std::string filter_all(const std::forward_list<std::string> stack);
 
 class Markov {
   using Key = std::string;
@@ -28,18 +29,24 @@ public:
   inline void add_assoc(std::string word, std::string assoc);
   std::string generate();
   Markov& clear();
-  Markov& recover();
+  Markov& restore();
   void save() const;
 
   // should probably prompt for this but cbf
-  std::string filename = "dict";
+  std::string dict_file = "dict";
 };
 
 struct Client : public SleepyDiscord::DiscordClient {
-  Markov dictionary;
   void repl();
-  // inherit constructor
-  using SleepyDiscord::DiscordClient::DiscordClient;
+  Markov dictionary;
+  // channels
+  using ID = long long;
+  std::unordered_map<std::string, ID> channels;
+  std::string chan_file = "channels";
+  void restore_channels();
+  // sleepydiscord stuff
+  using SleepyDiscord::DiscordClient::DiscordClient; // inherit constructor
+  using Reply = std::pair<std::string, std::string>; // channel, message
   void onMessage(SleepyDiscord::Message message) override;
-  inline std::string handle_cmd(std::string msg);
+  inline Reply dispatch_cmd(SleepyDiscord::Message msg);
 };

@@ -7,27 +7,29 @@ int main() {
   std::string tok;
   str >> tok;
   Client client {tok, 2}; // Client(token, num_threads)
-  client.dictionary.recover();
+  client.dictionary.restore();
+  client.restore_channels();
   std::thread repl {&Client::repl, &client};
   client.run();
 
-  return 0;
+    return 0;
 }
 
 /*** Client members ***/
+
 void Client::repl() {
   std::string command;
   std::cout << "zuccv3> ";
   while (std::cin >> command) {
     if (command == "quit") {
-      this->dictionary.save();
-      this->quit();
+      dictionary.save();
+      quit();
       return;
     } else if (command == "restore") {
       // discard modifications since session start
-      this->dictionary.clear().recover();
+      dictionary.clear().restore();
     } else if (command == "save") {
-      this->dictionary.save();
+      dictionary.save();
     } else {
       std::cout << "invalid command" << std::endl;
     }
@@ -36,29 +38,70 @@ void Client::repl() {
   return;
 }
 
+// read channels from `chan_file`, called once at startup
+void Client::restore_channels() {
+  std::ifstream str {this->chan_file};
+  std::string name, id;
+  while(str >> name >> id)
+    channels[name] = std::stoll(id);
+}
+
 void Client::onMessage(SleepyDiscord::Message message) {
   if (message.author == getCurrentUser().cast()) {
     return; // ignore itself
   } else if (message.startsWith("$")) {
-    sendMessage(message.channelID, handle_cmd(message.content.substr(1)));
+    Reply reply = dispatch_cmd(message);
+    sendMessage(reply.first, reply.second);
     return;
   }
   dictionary.log(clean(message.content));
 }
 
-std::string Client::handle_cmd(std::string msg) {
-  std::istringstream sstr {msg};
+Client::Reply Client::dispatch_cmd(SleepyDiscord::Message msg) {
+  std::istringstream sstr {msg.content.substr(1)}; // skip $
+  auto channel = msg.channelID;
   std::string cmd, cur, res;
   sstr >> cmd;
-  if (cmd == "say") {
+  if (cmd == "ask") {
     res = dictionary.generate();
-    return res;
-  } else if (cmd == "echo") {
-    while (sstr >> cur)
+    return Reply(channel, res);
+  } else if (cmd == "say") {
+    std::string err;
+    std::forward_list<std::string> filter_stack;
+    while(sstr >> cur) {
+      if(cur.front() == '-' && cur.substr(1) == "channel") {
+        sstr >> cur;
+        if(sstr.fail()) return Reply(channel, "Usage: $say [message [-channel CHANNELNAME]]");
+        if(channels.find(cur) != channels.end())
+          channel = channels[cur];
+        else
+          return Reply(channel, "Error: unknown or invalid channel name");
+        continue;
+      }
+      filter_stack.push_front(cur);
+      if((err = filter_all(filter_stack)) != "pass")
+        return Reply(channel, err);
       res += " " + cur;
-    return res;
+    }
+    return res != "" ? Reply(channel, res) : Reply(channel, "Usage: $say [message [-channel CHANNELNAME]]");
+  } else if (cmd == "fetch!") { // not to be called by normal users
+    int repeat {0};
+    std::string channelname, msgid;
+    sstr >> repeat >> channelname >> msgid;
+    for(int n = 0; n < repeat; n++) {
+      std::vector<std::string> vec = getMessages(channels[channelname], static_cast<GetMessagesKey>(2), 
+                                                 msgid, static_cast<uint8_t>(100));
+      auto it = vec.begin();
+      while(it != vec.end() - 1) { // last message is recorded in next iteration
+        dictionary.log(clean(std::string(SleepyDiscord::json::getValue(it->c_str(), "content"))));
+        it++;
+      }
+      msgid = SleepyDiscord::json::getValue(it->c_str(), "id");
+    }
+    return Reply(channel, "fetched and logged!");
   } else if (cmd == "yikes") {
-    return "                     ▄▄▄▄██▄▄▄▄███▄▄▄█▄▄███▄██▄▄▄███▄▄▄\
+    return Reply(channel, "\
+                                 ▄▄▄▄██▄▄▄▄███▄▄▄█▄▄███▄██▄▄▄███▄▄▄\
                           ▄    ▄▄██████▄█████▄▄██▄▄██████▄▄▄▄▄██████▄▄▄\
                          ██▄▄▄▄▄████████████████▄██████████████████████▄▄\
                    ▄▄▄▄██▄▄▄▄▄▄█▄▄▄▄▄▄███████████████████████████████████▄▄\
@@ -79,16 +122,16 @@ std::string Client::handle_cmd(std::string msg) {
      ██▄████████▄▄▄▄▄▄██▄▄█▄▄▄█▄▄▄█▄█▄▄██▄▄▄▄▄▄▄▄█████▄▄▄▄▄▄▄▄▄▄███████████████████\
      ▀▄████▄▄▄▄▀▀▀▀▄▄▄██▄▄█████████████▄▀████████████████████▄▄▄▀▀▀▀▄█▄▄▄▄▄▄▄▄▄████▄▄▄\
        ▀▀▀ ▀▄▄▀     ▀▀▄▄▄███████████▄▀▀    ▀▄█▄▄██████▄▄▄▄▄▀▀       ▄▄█████████▄█▄▄▄▀▀\
-";
+");
   } else {
-    return "invalid command"; // help command - keep a table of strings and func ptrs?
+    return Reply(channel, "invalid command"); // help command - keep a table of strings and func ptrs?
   }
 }
 
 /*** Markov members ***/
 
 void Markov::save() const {
-  std::ofstream fstr {this->filename};
+  std::ofstream fstr {this->dict_file};
 
   std::lock_guard<std::mutex> lock {dicc_lck};
   for (const auto& word : dict) {
@@ -100,8 +143,8 @@ void Markov::save() const {
   }
 }
 
-Markov& Markov::recover() {
-  std::ifstream fstr {this->filename};
+Markov& Markov::restore() {
+  std::ifstream fstr {this->dict_file};
   std::string raw_chain;
   std::lock_guard<std::mutex> lock {dicc_lck};
 
@@ -165,9 +208,15 @@ void Markov::add_assoc(std::string word, std::string assoc) {
 
 /** message generation **/
 
+#define NFILTERS 4
+
+std::array<std::string, NFILTERS> filters {
+  "salad a is cereal", "misleading consumers",
+  "socialism to superior", "illegal phrase"
+};
+
 // TODO: put in class and make it into a 'state' (haha) machine
-std::string filter(std::string phrase, const std::string& errortype, const std::forward_list<std::string> stack)
-{
+std::string filter(std::string phrase, const std::string& errortype, const std::forward_list<std::string> stack) {
   auto it {stack.cbegin()};
   std::stringstream str {phrase};
   std::string cur;
@@ -178,6 +227,15 @@ std::string filter(std::string phrase, const std::string& errortype, const std::
   // TODO: reverse using constexpr
   std::reverse(phrase.begin(), phrase.end());
   return "Right wing propaganda error (" + errortype + "): '" + phrase + "'";
+}
+
+std::string filter_all(const std::forward_list<std::string> stack) {
+  std::string ret;
+  for(auto it = filters.begin(); it != filters.end(); it += 2) {
+    if((ret = filter(*it, *(it + 1), stack)) != "pass")
+      return ret;
+  }
+  return "pass";
 }
 
 std::string Markov::generate() {
@@ -197,11 +255,7 @@ std::string Markov::generate() {
     // filter system for suppressing right wing propaganda
     std::string res;
     filter_stack.push_front(cur_word);
-
-    if((res = filter("salad a is cereal", "misleading consumers", filter_stack)) != "pass")
-      return res;
-
-    if((res = filter("socialism to superior", "illegal phrase", filter_stack)) != "pass")
+    if((res = filter_all(filter_stack)) != "pass")
       return res;
   }
   return sentence;
@@ -212,7 +266,7 @@ std::string Markov::generate() {
 // remember to update count
 std::array<char, 12> clean_chars {'`', '*', '\'', '"', '|', '_', '\\', '\n', '\t', ':'};
 
-std::string& clean(std::string& msg) {
+std::string clean(std::string msg) {
   for(const char& c : clean_chars)
     msg.erase(std::remove(msg.begin(), msg.end(), c), msg.end());
   return msg;
