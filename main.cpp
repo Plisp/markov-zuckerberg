@@ -226,7 +226,7 @@ std::string filter(std::string phrase, const std::string& errortype, const std::
   }
   // TODO: reverse using constexpr
   std::reverse(phrase.begin(), phrase.end());
-  return "Right wing propaganda error (" + errortype + "): '" + phrase + "'";
+  return "Capitalist propaganda error (" + errortype + "): '" + phrase + "'";
 }
 
 std::string filter_all(const std::forward_list<std::string> stack) {
